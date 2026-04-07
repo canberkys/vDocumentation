@@ -1,4 +1,4 @@
-﻿function Get-ESXSpeculativeExecution {
+function Get-ESXSpeculativeExecution {
     <#
      .SYNOPSIS
        Get ESXi host mitigation status for Spectre
@@ -11,9 +11,9 @@
        File Name    : Get-ESXSpeculativeExecution.ps1
        Author       : Edgar Sanchez - @edmsanchez13
        Contributor  : Ariel Sanchez - @arielsanchezmor
-       Version      : 2.4.7
+       Version      : 3.0.0
      .Link
-       https://github.com/arielsanchezmora/vDocumentation
+       https://github.com/canberkys/vDocumentation
      .INPUTS
        If inputBiosFile is specified then an offline CSV file path input must be provided to check against BIOS version
        If inputMcuFile is specified then an offline CSV file path input must be provided to check against MCU revision
@@ -36,7 +36,7 @@
      .PARAMETER inputBiosFile
        Specify input CSV file containing BIOS versions to validate against. Use this if you do not have access to the internet or wish to use your own offline version
      .EXAMPLE
-       Get-ESXSpeculativeExecution -Cluster production -inputBiosFile "c:\temp\BIOSUpdates.csv"       
+       Get-ESXSpeculativeExecution -Cluster production -inputBiosFile "c:\temp\BIOSUpdates.csv"
      .PARAMETER inputMcuFile
        Specify input CSV file containing Intel MCU version to validate against. Use this if you do not have access to the internet or wish to use your own offline version
      .EXAMPLE
@@ -49,7 +49,7 @@
      .PARAMETER ReportOnVMs
        Switch to report on virtual machines. This needs to be specified if needed.
      .EXAMPLE
-       Get-ESXSpeculativeExecution -Cluster production -ReportOnVMS       
+       Get-ESXSpeculativeExecution -Cluster production -ReportOnVMS
      .PARAMETER ExportCSV
        Switch to export all data to CSV file. File is saved to the current user directory from where the script was executed. Use -folderPath parameter to specify a alternate location
      .EXAMPLE
@@ -68,12 +68,12 @@
        Switch to return object to command line
      .EXAMPLE
        Get-ESXSpeculativeExecution -VMhost 192.168.1.100 -PassThru
-    #> 
-    
+    #>
+
     <#
      ----------------------------------------------------------[Declarations]----------------------------------------------------------
     #>
-  
+
     [CmdletBinding(DefaultParameterSetName = 'VMhost')]
     param (
         [Parameter(Mandatory = $false,
@@ -100,19 +100,15 @@
         [switch]$PassThru,
         $folderPath
     )
-    
+
     $patchCollection = [System.Collections.ArrayList]@()
     $skipCollection = @()
     $vmCollection = [System.Collections.ArrayList]@()
-    $vHostList = @()
     $returnCollection = @()
     $biosCsvCollection = @()
     $mcuCsvCollection = @()
     $biosUrl = 'https://raw.githubusercontent.com/edmsanchez/vDocumentation/master/powershell/vDocumentation/BIOSUpdates_v4.csv'
     $mcuUrl = 'https://raw.githubusercontent.com/edmsanchez/vDocumentation/master/powershell/vDocumentation/Intel_MCU_v4.csv'
-    $date = Get-Date -format s
-    $date = $date -replace ":", "-"
-    $outputFile = "SpeculativeExecution" + $date
 
     <#
       VMSA-2018-0004.3 Build IDs
@@ -141,121 +137,16 @@
      ----------------------------------------------------------[Execution]----------------------------------------------------------
     #>
 
-    $stopWatch = [system.diagnostics.stopwatch]::startNew()
+    $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
     if ($PSBoundParameters.ContainsKey('Cluster') -or $PSBoundParameters.ContainsKey('DataCenter')) {
         [String[]]$VMhost = $null
-    } #END if
-
-    <#
-      Query PowerCLI and vDocumentation versions if
-      running Verbose
-    #>
-    if ($VerbosePreference -eq "continue") {
-        Write-Verbose -Message ((Get-Date -Format G) + "`tPowerCLI Version:")
-        Get-Module -Name VMware.* | Select-Object -Property Name, Version | Format-Table -AutoSize
-        Write-Verbose -Message ((Get-Date -Format G) + "`tvDocumentation Version:")
-        Get-Module -Name vDocumentation | Select-Object -Property Name, Version | Format-Table -AutoSize
-    } #END if
-
-    <#
-      Check for an active connection to a VIServer
-    #>
-    Write-Verbose -Message ((Get-Date -Format G) + "`tValidate connection to a vSphere server")
-    if ($Global:DefaultViServers.Count -gt 0) {
-        Write-Host "`tConnected to $Global:DefaultViServers" -ForegroundColor Green
     }
-    else {
-        Write-Error -Message "You must be connected to a vSphere server before running this Cmdlet."
-        break
-    } #END if/else
-    
-    <#
-      Gather host list based on Parameter set used
-    #>
-    Write-Verbose -Message ((Get-Date -Format G) + "`tGather host list")
-    if ($VMhost) {
-        Write-Verbose -Message ((Get-Date -Format G) + "`tExecuting Cmdlet using VMhost parameter set")
-        Write-Output "`tGathering host list..."
-        foreach ($invidualHost in $VMhost) {
-            $tempList = Get-VMHost -Name $invidualHost.Trim() -ErrorAction SilentlyContinue
-            if ($tempList) {
-                $vHostList += $tempList
-            }
-            else {
-                Write-Warning -Message "`tESXi host $invidualHost was not found in $Global:DefaultViServers"
-            } #END if/else
-        } #END foreach    
-    } #END if
-    if ($Cluster) {
-        Write-Verbose -Message ((Get-Date -Format G) + "`tExecuting Cmdlet using Cluster parameter set")
-        Write-Output ("`tGathering host list from the following Cluster(s): " + (@($Cluster) -join ','))
-        foreach ($vClusterName in $Cluster) {
-            $tempList = Get-Cluster -Name $vClusterName.Trim() -ErrorAction SilentlyContinue | Get-VMHost 
-            if ($tempList) {
-                $vHostList += $tempList
-            }
-            else {
-                Write-Warning -Message "`tCluster with name $vClusterName was not found in $Global:DefaultViServers"
-            } #END if/else
-        } #END foreach
-    } #END if
-    if ($DataCenter) {
-        Write-Verbose -Message ((Get-Date -Format G) + "`tExecuting Cmdlet using Datacenter parameter set")
-        Write-Output ("`tGathering host list from the following DataCenter(s): " + (@($DataCenter) -join ','))
-        foreach ($vDCname in $DataCenter) {
-            $tempList = Get-Datacenter -Name $vDCname.Trim() -ErrorAction SilentlyContinue | Get-VMHost 
-            if ($tempList) {
-                $vHostList += $tempList
-            }
-            else {
-                Write-Warning -Message "`tDatacenter with name $vDCname was not found in $Global:DefaultViServers"
-            } #END if/else
-        } #END foreach
-    } #END if
-    $tempList = $null
-    
-    <#
-      Validate export switches,
-      folder path and dependencies
-    #>
-    Write-Verbose -Message ((Get-Date -Format G) + "`tValidate export switches and folder path")
-    if ($ExportCSV -or $ExportExcel) {
-        $currentLocation = (Get-Location).Path
-        if ([string]::IsNullOrWhiteSpace($folderPath)) {
-            Write-Verbose -Message ((Get-Date -Format G) + "`t-folderPath parameter is Null or Empty")
-            Write-Warning -Message "`tFolder Path (-folderPath) was not specified for saving exported data. The current location: '$currentLocation' will be used"
-            $outputFile = $currentLocation + "\" + $outputFile
-        }
-        else {
-            if (Test-Path $folderPath) {
-                Write-Verbose -Message ((Get-Date -Format G) + "`t'$folderPath' path found")
-                $lastCharsOfFolderPath = $folderPath.Substring($folderPath.Length - 1)
-                if ($lastCharsOfFolderPath -eq "\" -or $lastCharsOfFolderPath -eq "/") {
-                    $outputFile = $folderPath + $outputFile
-                }
-                else {
-                    $outputFile = $folderPath + "\" + $outputFile
-                } #END if/else
-                Write-Verbose -Message ((Get-Date -Format G) + "`t$outputFile")
-            }
-            else {
-                Write-Warning -Message "`t'$folderPath' path not found. The current location: '$currentLocation' will be used instead"
-                $outputFile = $currentLocation + "\" + $outputFile
-            } #END if/else
-        } #END if/else
-    } #END if
-    if ($ExportExcel) {
-        if (Get-Module -ListAvailable -Name ImportExcel) {
-            Write-Verbose -Message ((Get-Date -Format G) + "`tImportExcel Module available")
-        }
-        else {
-            Write-Warning -Message "`tImportExcel Module missing. Will export data to CSV file instead"
-            Write-Warning -Message "`tImportExcel Module can be installed directly from the PowerShell Gallery"
-            Write-Warning -Message "`tSee https://github.com/dfinke/ImportExcel for more information"
-            $ExportExcel = $false
-            $ExportCSV = $true
-        } #END if/else
-    } #END if
+
+    Write-VerboseModuleInfo
+    Test-VIServerConnection
+    $vHostList = Get-VMHostList -VMhost $VMhost -Cluster $Cluster -DataCenter $DataCenter
+
+    $outputFile = Resolve-OutputFilePath -BaseName "SpeculativeExecution" -FolderPath $folderPath -ExportCSV ([ref]$ExportCSV) -ExportExcel ([ref]$ExportExcel)
 
     <#
       Validate UseSSH switch and dependencies
@@ -288,7 +179,7 @@
         Write-Verbose -Message ((Get-Date -Format G) + "`tValidating access to online CSV file")
         try {
             $webRequest = Invoke-WebRequest -Uri $biosUrl
-        } 
+        }
         catch [System.Net.WebException] {
             $webRequest = $_.Exception.Response
         } #END try/catch
@@ -299,7 +190,7 @@
             Write-Warning -Message ("`tonline CSV file: '$biosUrl' is NOT reachable/unavailable (Return code: " + ([int]$webRequest.StatusCode) + ")")
             Write-Warning -Message "`tYou can download the file locally and use it offline with the -inputBiosFile parameter. See help for more information"
             Write-Warning -Message "`tSkipping BIOS Compliance check..."
-        } #END if/else   
+        } #END if/else
     }
     else {
         if (Test-Path $inputBiosFile) {
@@ -316,7 +207,7 @@
         Write-Verbose -Message ((Get-Date -Format G) + "`tValidating access to online CSV file")
         try {
             $webRequest = Invoke-WebRequest -Uri $mcuUrl
-        } 
+        }
         catch [System.Net.WebException] {
             $webRequest = $_.Exception.Response
         } #END try/catch
@@ -327,7 +218,7 @@
             Write-Warning -Message ("`tonline CSV file: '$mcuUrl' is NOT reachable/unavailable (Return code: " + ([int]$webRequest.StatusCode) + ")")
             Write-Warning -Message "`tYou can download the file locally and use it offline with the -inputMcuFile parameter. See help for more information"
             Write-Warning -Message "`tSkipping Intel MCU Compliance check..."
-        } #END if/else   
+        } #END if/else
     }
     else {
         if (Test-Path $inputMcuFile) {
@@ -338,35 +229,16 @@
             Write-Warning -Message "`t'$inputMcuFile' path not found."
             Write-Warning -Message "`tSkipping Intel MCU Compliance check..."
         } #END if/else
-    } #END if/else    
-    
+    } #END if/else
+
     <#
       Main code execution
     #>
-    $vHostList = $vHostList | Sort-Object -Property Name
     foreach ($esxiHost in $vHostList) {
-    
-        <#
-          Skip if ESXi host is not in a Connected
-          or Maintenance ConnectionState
-        #>
-        Write-Verbose -Message ((Get-Date -Format G) + "`t$esxiHost Connection State: " + $esxiHost.ConnectionState)
-        if ($esxiHost.ConnectionState -eq "Connected" -or $esxiHost.ConnectionState -eq "Maintenance") {
-            <#
-              Do nothing - ESXi host is reachable
-            #>
-        }
-        else {
-            <#
-              Use a custom object to keep track of skipped
-              hosts and continue to the next foreach loop
-            #>
-            $skipCollection += [PSCustomObject]@{
-                'Hostname'         = $esxiHost.Name
-                'Connection State' = $esxiHost.ConnectionState
-            } #END [PSCustomObject]
+
+        if (-not (Test-HostConnectionState -VMHost $esxiHost -SkipCollection ([ref]$skipCollection))) {
             continue
-        } #END if/else
+        }
 
         <#
           Get ESXi CPUID details
@@ -394,11 +266,11 @@
         $hostPcid = $hostFeatureCapability | Where-Object {$_.Featurename -eq "cpuid.PCID" -and $_.Value -eq "1"} | Select-Object -ExpandProperty FeatureName
         if ($hostInvPcid -and $hostPcid) {
             $hostCpuPcid = $true
-        } #End if        
+        } #End if
         if ($hostCpuid) {
             $hostMcuCPuid = (@($hostCpuid.split('.') | Where-Object {$_ -ne "cpuid"}) -join ',')
         } #END if
-        
+
         <#
           Get accurate last patched date if ESXi 6.5 or above
           based on Date and time (UTC), which is
@@ -417,7 +289,7 @@
         else {
             $lastPatched = Get-Date $vmhostPatch.InstallDate -Format d
         } #END if/else
-        
+
         <#
           Get ESXi VMSA-2018-0020
           patch details
@@ -601,11 +473,11 @@
                 Write-Verbose -Message ((Get-Date -Format G) + "`tFailed to gather BIOS release date, its null...")
             } #END if/else
         } #END if/else
-        
+
         <#
           Check for BIOS
           version details
-        #>        
+        #>
         Write-Verbose -Message ((Get-Date -Format G) + "`tGathering BIOS details...")
         if ($biosCsvCollection) {
             $minVersion = $biosCsvCollection | Where-Object {$_.Model -eq $esxiHost.Model}
@@ -640,7 +512,7 @@
         if ($biosReleaseDate) {
             $biosReleaseDate = $biosReleaseDate.ToShortDateString()
         } #END if
-            
+
         <#
           Check for CPU Signatures
           Intel Sighting
@@ -693,13 +565,13 @@
         $output = [PSCustomObject]@{
             'Hostname'             = $esxiHost.Name
             'Management IP'        = $mgmtIP
-            'Cluster'              = $esxiHost.Parent            
+            'Cluster'              = $esxiHost.Parent
             'Product'              = $vmhostView.Config.Product.Name
             'Version'              = $esxiVersion
-            'Build'                = $esxiHost.Build            
+            'Build'                = $esxiHost.Build
             'Last patched'         = $lastPatched
             'Boot time'            = $bootTime
-            'Uptime'               = "$upTimeDays Day(s), $upTimeHours Hr(s), $upTimeMinutes Min(s)"            
+            'Uptime'               = "$upTimeDays Day(s), $upTimeHours Hr(s), $upTimeMinutes Min(s)"
             'Make'                 = $esxiHost.Manufacturer
             'Model'                = $esxiHost.Model
             'CPU model'            = $cpuModel
@@ -737,7 +609,7 @@
                 $vmCpuPcid = $null
                 $powerOnEvent = $null
                 Write-Output "`tGathering VM hypervisor-assisted guest mitigation details from $vm ..."
-                $hardwareVersion = ($vm.Version.ToString()).Split('v')[1]              
+                $hardwareVersion = ($vm.Version.ToString()).Split('v')[1]
                 $vmFeatureRequirement = $vm.ExtensionData.Runtime.FeatureRequirement
                 $vmCpuid = $vmFeatureRequirement | Where-Object {$_.FeatureName -eq "cpuid.IBRS" -or $_.Featurename -eq "cpuid.IBPB" -or $_.Featurename -eq "cpuid.STIBP" -or $_.Featurename -eq "cpuid.SSBD"} | Select-Object -ExpandProperty FeatureName
                 $vmPcid = $vmFeatureRequirement | Where-Object {$_.FeatureName -eq "cpuid.INVPCID" -or $_.Featurename -eq "cpuid.PCID"} | Select-Object -ExpandProperty FeatureName
@@ -835,16 +707,16 @@
     $stopWatch.Stop()
     Write-Verbose -Message ((Get-Date -Format G) + "`tMain code execution completed")
     Write-Verbose -Message  ((Get-Date -Format G) + "`tScript Duration: " + $stopWatch.Elapsed.Duration())
-    
+
     <#
       Display skipped hosts and their connection status
     #>
-    If ($skipCollection) {
+    if ($skipCollection) {
         Write-Warning -Message "`tCheck Connection State or Host name"
         Write-Warning -Message "`tSkipped hosts:"
         $skipCollection | Format-Table -AutoSize
-    } #END if
-    
+    }
+
     <#
       Validate output arrays
     #>
@@ -853,47 +725,21 @@
     }
     else {
         Write-Verbose -Message ((Get-Date -Format G) + "`tNo information gathered")
-    } #END if/else
-    
+    }
+
     <#
       Output to screen
       Export data to CSV, Excel
     #>
     if ($patchCollection) {
-        Write-Host "`n" "ESXi Speculative Execution:" -ForegroundColor Green
-        if ($ExportCSV) {
-            $patchCollection | Export-Csv ($outputFile + "ESXi.csv") -NoTypeInformation
-            Write-Host "`tData exported to" ($outputFile + "ESXi.csv") "file" -ForegroundColor Green
-        }
-        elseif ($ExportExcel) {
-            $patchCollection | Export-Excel ($outputFile + ".xlsx") -WorkSheetname ESXi -NoNumberConversion * -AutoSize -BoldTopRow
-            Write-Host "`tData exported to" ($outputFile + ".xlsx") "file" -ForegroundColor Green
-        }
-        elseif ($PassThru) {
-            $returnCollection += $patchCollection 
-            $returnCollection 
-        }
-        else {
-            $patchCollection | Format-List
-        }#END if/else
-    } #END if
+        $result = Export-CollectionData -Collection $patchCollection -OutputFile $outputFile -DisplayLabel "ESXi Speculative Execution" -WorksheetName "Speculative_Execution" -CsvSuffix "SpeculativeExecution" -ExportCSV:$ExportCSV -ExportExcel:$ExportExcel -PassThru:$PassThru
+        if ($result) { $returnCollection += $result }
+    }
 
     if ($vmCollection) {
-        Write-Host "`n" "VM Hypervisor-Assisted Guest Mitigation:" -ForegroundColor Green
-        if ($ExportCSV) {
-            $VMCollection | Export-Csv ($outputFile + "VM.csv") -NoTypeInformation
-            Write-Host "`tData exported to" ($outputFile + "VM.csv") "file" -ForegroundColor Green
-        }
-        elseif ($ExportExcel) {
-            $VMCollection | Export-Excel ($outputFile + ".xlsx") -WorkSheetname VM -NoNumberConversion * -BoldTopRow
-            Write-Host "`tData exported to" ($outputFile + ".xlsx") "file" -ForegroundColor Green
-        }
-        elseif ($PassThru) {
-            $returnCollection += $VMCollection
-            $returnCollection  
-        }
-        else {
-            $vmCollection | Format-List
-        }#END if/else
-    } #END if
+        $result = Export-CollectionData -Collection $vmCollection -OutputFile $outputFile -DisplayLabel "VM Speculative Execution" -WorksheetName "VM_Speculative_Execution" -CsvSuffix "VMSpeculativeExecution" -ExportCSV:$ExportCSV -ExportExcel:$ExportExcel -PassThru:$PassThru
+        if ($result) { $returnCollection += $result }
+    }
+
+    if ($returnCollection) { $returnCollection }
 } #END function
