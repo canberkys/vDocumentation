@@ -61,8 +61,8 @@ Get-ESXStorage -VMhost esxi01.lab.local -ExportCSV
 | **Get-ESXIODevice** | PCI/IO devices — HBAs, NICs, graphics — including VMware HCL compatibility |
 | **Get-ESXNetworking** | Network config — physical adapters, VMkernel, vSwitches, CDP/LLDP |
 | **Get-ESXStorage** | Storage config — iSCSI, Fibre Channel HBAs, datastores, multipathing |
-| **Get-ESXPatching** | Patch compliance — VUM baselines, installed/missing patches, KB references |
-| **Get-vSANInfo** | vSAN cluster — type (Flash/Hybrid), disk groups, capacity, dedup, policies |
+| **Get-ESXPatching** | Patch compliance — VUM baselines or vLCM image-based (`-LifecycleManager`) |
+| **Get-vSANInfo** | vSAN cluster — ESA/OSA detection, type, disk groups, capacity, dedup, policies |
 | **Get-ESXSpeculativeExecution** | Spectre/Meltdown mitigation status — BIOS, MCU, host compliance |
 | **Get-VMSpeculativeExecution** | VM-level Spectre mitigation — pipeline-enabled (`Get-VM \| Get-VMSpeculativeExecution`) |
 | **Get-ESXDPUInventory** | **NEW** DPU/SmartNIC inventory — vendor, model, firmware, offload status (vSphere 8+) |

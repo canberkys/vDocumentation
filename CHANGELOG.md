@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.1] - 2026-04-08
+
+### Added
+- vSAN ESA (Express Storage Architecture) detection in `Get-vSANInfo`
+  - Detects ESA vs OSA storage architecture automatically
+  - New output columns: `Storage Architecture`, `Compression Only (ESA)`
+  - ESA clusters report correctly without disk groups
+- vSphere Lifecycle Manager (vLCM) support in `Get-ESXPatching`
+  - New `-LifecycleManager` switch for image-based compliance reporting
+  - Reports: Management Mode, Desired Base Image, Vendor/Firmware/Driver Add-Ons, Compliance Status
+  - Existing VUM baseline mode unchanged (default behavior)
+
+---
+
 ## [3.0.0] - 2026-04-08
 
 ### About This Fork

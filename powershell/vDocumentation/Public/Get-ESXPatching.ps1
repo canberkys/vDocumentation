@@ -46,6 +46,11 @@ function Get-ESXPatching {
        Specify an alternate folder path where the exported data should be saved.
      .EXAMPLE
        Get-ESXPatching -Cluster production -ExportExcel -folderPath C:\temp
+     .PARAMETER LifecycleManager
+       Switch to use vSphere Lifecycle Manager (vLCM) image-based compliance instead of VUM baselines.
+       Use this for clusters managed with vLCM desired state images (vSphere 7+/8+).
+     .EXAMPLE
+       Get-ESXPatching -Cluster production -LifecycleManager -ExportExcel
      .PARAMETER PassThru
        Switch to return object to command line
      .EXAMPLE
@@ -70,6 +75,7 @@ function Get-ESXPatching {
         [ValidateNotNullOrEmpty()]
         [String[]]$DataCenter,
         $baseline,
+        [switch]$LifecycleManager,
         [switch]$ExportCSV,
         [switch]$ExportExcel,
         [switch]$PassThru,
@@ -79,6 +85,7 @@ function Get-ESXPatching {
     $patchingCollection = [System.Collections.ArrayList]@()
     $lastPatchingCollection = [System.Collections.ArrayList]@()
     $notCompliantPatchCollection = [System.Collections.ArrayList]@()
+    $vlcmCollection = [System.Collections.ArrayList]@()
     $skipCollection = @()
     $returnCollection = @()
 
@@ -95,6 +102,157 @@ function Get-ESXPatching {
     Test-VIServerConnection
 
     <#
+      vSphere Lifecycle Manager (vLCM) mode
+      Uses image-based compliance instead of VUM baselines
+    #>
+    if ($LifecycleManager) {
+        Write-Verbose -Message ((Get-Date -Format G) + "`tUsing vSphere Lifecycle Manager (vLCM) mode")
+
+        $vHostList = Get-VMHostList -VMhost $VMhost -Cluster $Cluster -DataCenter $DataCenter
+        $outputFile = Resolve-OutputFilePath -BaseName "ESXiLifecycleManager" -FolderPath $folderPath -ExportCSV ([ref]$ExportCSV) -ExportExcel ([ref]$ExportExcel)
+
+        foreach ($esxiHost in $vHostList) {
+
+            if (-not (Test-HostConnectionState -VMHost $esxiHost -SkipCollection ([ref]$skipCollection))) {
+                continue
+            }
+
+            Write-Output "`tGathering vLCM compliance from $esxiHost ..."
+            $vmhostView = $esxiHost | Get-View
+            $esxiUpdateLevel = (Get-AdvancedSetting -Name "Misc.HostAgentUpdateLevel" -Entity $esxiHost -ErrorAction SilentlyContinue -ErrorVariable err).Value
+            if ($esxiUpdateLevel) {
+                $esxiVersion = ($esxiHost.Version) + " U" + $esxiUpdateLevel
+            }
+            else {
+                $esxiVersion = $esxiHost.Version
+            }
+
+            <#
+              Determine if host's cluster uses vLCM image mode
+            #>
+            $hostCluster = $esxiHost | Get-Cluster -ErrorAction SilentlyContinue
+            $clusterName = if ($hostCluster) { $hostCluster.Name } else { "N/A (Standalone)" }
+            $managementMode = "Unknown"
+            $imageProfile = "N/A"
+            $complianceStatus = "N/A"
+            $firmwareAddon = "N/A"
+            $driverAddon = "N/A"
+            $baseImage = "N/A"
+            $vendorAddon = "N/A"
+
+            if ($hostCluster) {
+                try {
+                    <#
+                      Get cluster's desired software spec via vLCM API
+                      LcmClusterDesiredSoftwareSpec is available in PowerCLI 13+
+                    #>
+                    $clusterView = $hostCluster | Get-View
+                    $settingsManager = Get-View -Id "ClusterComputeResource-$($clusterView.MoRef.Value)"
+
+                    # Check if cluster uses image-based management
+                    $softwareSpec = $null
+                    try {
+                        $softwareSpec = $settingsManager.GetDesiredSoftwareSpec()
+                    }
+                    catch {
+                        Write-Verbose -Message ((Get-Date -Format G) + "`tGetDesiredSoftwareSpec not available, trying alternative method")
+                    }
+
+                    if ($softwareSpec) {
+                        $managementMode = "vLCM Image"
+                        if ($softwareSpec.BaseImage) {
+                            $baseImage = "$($softwareSpec.BaseImage.Version)"
+                        }
+                        if ($softwareSpec.VendorAddOn) {
+                            $vendorAddon = "$($softwareSpec.VendorAddOn.Name) $($softwareSpec.VendorAddOn.Version)"
+                        }
+                        if ($softwareSpec.Components) {
+                            $firmwareAddon = ($softwareSpec.Components | Where-Object {$_.Key -match "firmware|fwaddon"} | Select-Object -First 1).Value
+                            if (-not $firmwareAddon) { $firmwareAddon = "N/A" }
+                            $driverAddon = ($softwareSpec.Components | Where-Object {$_.Key -match "driver"} | Select-Object -First 1).Value
+                            if (-not $driverAddon) { $driverAddon = "N/A" }
+                        }
+
+                        # Get host compliance status
+                        try {
+                            $hostCompliance = Test-LcmClusterCompliance -Cluster $hostCluster -ErrorAction SilentlyContinue
+                            if ($hostCompliance) {
+                                $hostStatus = $hostCompliance | Where-Object {$_.Entity.Name -eq $esxiHost.Name}
+                                if ($hostStatus) {
+                                    $complianceStatus = $hostStatus.ComplianceStatus
+                                }
+                                else {
+                                    $complianceStatus = $hostCompliance.ComplianceStatus | Select-Object -First 1
+                                }
+                            }
+                        }
+                        catch {
+                            Write-Verbose -Message ((Get-Date -Format G) + "`tTest-LcmClusterCompliance not available: $_")
+                            $complianceStatus = "Unable to determine"
+                        }
+                    }
+                    else {
+                        $managementMode = "VUM Baseline"
+                        Write-Verbose -Message ((Get-Date -Format G) + "`tCluster $clusterName uses VUM baseline mode, not vLCM image mode")
+                    }
+                }
+                catch {
+                    Write-Verbose -Message ((Get-Date -Format G) + "`tFailed to get vLCM info for cluster $clusterName`: $_")
+                    $managementMode = "Error"
+                }
+            }
+
+            # Get currently installed image profile
+            try {
+                $esxcli = Get-EsxCli -VMHost $esxiHost -V2
+                $installedProfile = $esxcli.software.profile.get.Invoke()
+                $imageProfile = $installedProfile.Name
+            }
+            catch {
+                Write-Verbose -Message ((Get-Date -Format G) + "`tFailed to get installed image profile: $_")
+            }
+
+            $output = [PSCustomObject]@{
+                'Hostname'             = $esxiHost.Name
+                'Cluster'              = $clusterName
+                'Product'              = $vmhostView.Config.Product.Name
+                'Version'              = $esxiVersion
+                'Build'                = $esxiHost.Build
+                'Management Mode'      = $managementMode
+                'Installed Image'      = $imageProfile
+                'Desired Base Image'   = $baseImage
+                'Vendor Add-On'        = $vendorAddon
+                'Firmware Add-On'      = $firmwareAddon
+                'Driver Add-On'        = $driverAddon
+                'Compliance Status'    = $complianceStatus
+            }
+            [void]$vlcmCollection.Add($output)
+        }
+
+        $stopWatch.Stop()
+        Write-Verbose -Message ((Get-Date -Format G) + "`tMain code execution completed")
+        Write-Verbose -Message ((Get-Date -Format G) + "`tScript Duration: " + $stopWatch.Elapsed.Duration())
+
+        if ($skipCollection) {
+            Write-Warning -Message "`tCheck Connection State or Host name"
+            Write-Warning -Message "`tSkipped hosts:"
+            $skipCollection | Format-Table -AutoSize
+        }
+
+        if ($vlcmCollection) {
+            $result = Export-CollectionData -Collection $vlcmCollection -OutputFile $outputFile -DisplayLabel "vSphere Lifecycle Manager Compliance" -WorksheetName "vLCM_Compliance" -CsvSuffix "vLCMCompliance" -ExportCSV:$ExportCSV -ExportExcel:$ExportExcel -PassThru:$PassThru
+            if ($result) { $returnCollection += $result }
+        }
+        else {
+            Write-Verbose -Message ((Get-Date -Format G) + "`tNo information gathered")
+        }
+
+        if ($returnCollection) { $returnCollection }
+        return
+    }
+
+    <#
+      VUM Baseline mode (default)
       Validate if baseline parameter was specified (-baseline).
       By default 'Critical Host Patches*', 'Non-Critical Host Patches*'
       VUM baselines are used.

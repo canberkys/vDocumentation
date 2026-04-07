@@ -134,35 +134,84 @@ function Get-vSANInfo {
           Get vSAN configuration details
         #>
         $vSAN = $vSAN | Get-VsanClusterConfiguration
-        $vSanDiskGroups = Get-VsanDiskGroup -Cluster $vSAN.Name
-        $vSanDisks = Get-VsanDisk -vSANDiskGroup $vSanDiskGroups
-        $numberDisks = $vSanDisks.Count
         $vSanView = $vSAN | Get-View
 
         <#
-          Get vSAN oldest disk format version
+          Detect vSAN Storage Architecture: ESA (Express Storage Architecture) vs OSA (Original)
+          ESA was introduced in vSphere 8.0 — no disk groups, single-tier NVMe storage
         #>
-        Write-Verbose -Message ((Get-Date -Format G) + "`tGathering disk format Configuration...")
-        $oldestDiskFormatVersion = $vSanDisks.DiskFormatVersion | Sort-Object -Unique | Select-Object -First 1
+        Write-Verbose -Message ((Get-Date -Format G) + "`tDetecting vSAN storage architecture...")
+        $storageArchitecture = "OSA"
+        $numberDisks = 0
+        $numberDiskGroups = 0
+        $oldestDiskFormatVersion = "N/A"
+        $clusterType = "N/A"
+        $compressionOnly = $false
 
-        <#
-          Get number of disk groups
-        #>
-        Write-Verbose -Message ((Get-Date -Format G) + "`tGathering disk group configuration...")
-        $numberDiskGroups = $vSanDiskGroups.Count
+        try {
+            $vsanConfigInfo = $vSanView.ConfigurationEx
+            if ($vsanConfigInfo.PSObject.Properties.Name -contains 'DataEfficiencyConfig' -and
+                $vsanConfigInfo.PSObject.Properties.Name -contains 'UnmapConfig') {
+                # Check for ESA indicators: no disk groups but vSAN is enabled
+                $vSanDiskGroups = Get-VsanDiskGroup -Cluster $vSAN.Name -ErrorAction SilentlyContinue
+                if (-not $vSanDiskGroups -or $vSanDiskGroups.Count -eq 0) {
+                    $storageArchitecture = "ESA"
+                    Write-Verbose -Message ((Get-Date -Format G) + "`tvSAN ESA detected (no disk groups)")
 
-        <#
-          Get vSAN cluster type
-          BUG FIX: Original code counted IsSsd -eq $true for magnetic disks (logic inversion)
-          Fixed: Count non-SSD disks to determine if cluster is Hybrid
-        #>
-        Write-Verbose -Message ((Get-Date -Format G) + "`tGathering cluster type Configuration...")
-        $magneticDiskCounter = ($vSanDisks | Where-Object {$_.IsSsd -eq $false}).Count
-        if ($magneticDiskCounter -gt 0) {
-            $clusterType = "Hybrid"
+                    # ESA: Get disk count from storage pool
+                    try {
+                        $esaDisks = Get-VsanDisk -Cluster $vSAN.Name -ErrorAction SilentlyContinue
+                        if ($esaDisks) {
+                            $numberDisks = $esaDisks.Count
+                        }
+                    }
+                    catch {
+                        Write-Verbose -Message ((Get-Date -Format G) + "`tFailed to enumerate ESA disks: $_")
+                    }
+                    $clusterType = "Flash (ESA)"
+
+                    # ESA supports compression-only (without dedup)
+                    if ($vsanConfigInfo.DataEfficiencyConfig) {
+                        $compressionOnly = $vsanConfigInfo.DataEfficiencyConfig.CompressionEnabled -and
+                                          -not $vsanConfigInfo.DataEfficiencyConfig.DedupEnabled
+                    }
+                }
+                else {
+                    $storageArchitecture = "OSA"
+                }
+            }
         }
-        else {
-            $clusterType = "Flash"
+        catch {
+            Write-Verbose -Message ((Get-Date -Format G) + "`tESA detection failed, assuming OSA: $_")
+        }
+
+        <#
+          OSA-specific: Get disk groups, disks, format version, cluster type
+        #>
+        if ($storageArchitecture -eq "OSA") {
+            $vSanDiskGroups = Get-VsanDiskGroup -Cluster $vSAN.Name
+            $vSanDisks = Get-VsanDisk -vSANDiskGroup $vSanDiskGroups
+            $numberDisks = $vSanDisks.Count
+
+            Write-Verbose -Message ((Get-Date -Format G) + "`tGathering disk format Configuration...")
+            $oldestDiskFormatVersion = $vSanDisks.DiskFormatVersion | Sort-Object -Unique | Select-Object -First 1
+
+            Write-Verbose -Message ((Get-Date -Format G) + "`tGathering disk group configuration...")
+            $numberDiskGroups = $vSanDiskGroups.Count
+
+            <#
+              Get vSAN cluster type
+              BUG FIX: Original code counted IsSsd -eq $true for magnetic disks (logic inversion)
+              Fixed: Count non-SSD disks to determine if cluster is Hybrid
+            #>
+            Write-Verbose -Message ((Get-Date -Format G) + "`tGathering cluster type Configuration...")
+            $magneticDiskCounter = ($vSanDisks | Where-Object {$_.IsSsd -eq $false}).Count
+            if ($magneticDiskCounter -gt 0) {
+                $clusterType = "Hybrid"
+            }
+            else {
+                $clusterType = "Flash"
+            }
         }
 
         <#
@@ -205,10 +254,12 @@ function Get-vSANInfo {
             'vSAN Cluster Name'                   = $vSAN.Name
             'Effective Hosts'                     = $vSanView.Summary.NumEffectiveHosts
             'Oldest vSAN Version'                 = $oldestvSanSystemVersion
+            'Storage Architecture'                = $storageArchitecture
             'Oldest Disk Format'                  = $oldestDiskFormatVersion
             'Cluster Type'                        = $clusterType
             'Disk Claim Mode'                     = $diskClaimMode
             'Deduplication & Compression Enabled' = $deduplicationCompression
+            'Compression Only (ESA)'              = $compressionOnly
             'Stretched Cluster Enabled'           = $stretchedCluster
             'Host Failures To Tolerate'           = $vSanFailureToTolerate
             'vSAN Stripe Width'                   = $vSanStripeWidth
