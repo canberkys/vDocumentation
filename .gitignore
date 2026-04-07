@@ -1,0 +1,21 @@
+# IDE
+.vscode/
+.idea/
+
+# Output files
+*.xlsx
+*.csv
+!powershell/vDocumentation/BIOSUpdates*.csv
+!powershell/vDocumentation/Intel_MCU*.csv
+!powershell/vDocumentation/Data/*.csv
+
+# PowerShell
+*.ps1xml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test results
+testResults.xml
+coverage.xml

@@ -10,9 +10,9 @@
        File Name    : Get-VMSpeculativeExecution.ps1
        Author       : Edgar Sanchez - @edmsanchez13
        Contributor  : Ariel Sanchez - @arielsanchezmor
-       Version      : 2.4.7
+       Version      : 3.0.0
      .Link
-       https://github.com/arielsanchezmora/vDocumentation
+       https://github.com/canberkys/vDocumentation
      .PARAMETER VM
        Specifies the virtual machine(s) which you want to validate compliance on.
      .EXAMPLE

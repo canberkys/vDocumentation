@@ -1,9 +1,9 @@
-﻿function Get-ESXIODevice {
+function Get-ESXIODevice {
     <#
      .SYNOPSIS
        Get ESXi IO VMKernel device information
      .DESCRIPTION
-       Will get PCI/IO Device information including HCL IDs for the below VMkernel name(s): 
+       Will get PCI/IO Device information including HCL IDs for the below VMkernel name(s):
        Network Controller - vmnic*
        Storage Controller - vmhba*
        Graphic Device - vmgfx*
@@ -13,9 +13,9 @@
        Author       : Edgar Sanchez - @edmsanchez13
        Contributor  : Ariel Sanchez - @arielsanchezmor
        Contributor : @pdpelsem
-       Version      : 2.4.7
+       Version      : 3.0.0
      .Link
-       https://github.com/arielsanchezmora/vDocumentation
+       https://github.com/canberkys/vDocumentation
      .INPUTS
        No inputs required
      .OUTPUTS
@@ -51,8 +51,8 @@
        Returns the object to console
      .EXAMPLE
        Get-ESXIODevice -VMhost devvm001.lab.local -PassThru
-    #> 
-    
+    #>
+
     <#
      ----------------------------------------------------------[Declarations]----------------------------------------------------------
     #>
@@ -78,21 +78,18 @@
         [switch]$PassThru,
         $folderPath
     )
-    
+
     $ioDeviceCollection = [System.Collections.ArrayList]@()
     $ioDeviceHclCollection = [System.Collections.ArrayList]@()
     $hclIoCollection = [System.Collections.ArrayList]@()
     $skipCollection = @()
-    $vHostList = @()
-    $date = Get-Date -format s
-    $date = $date -replace ":", "-"
-    $outputFile = "IODevice" + $date
-    
+    $returnCollection = @()
+
     <#
      ----------------------------------------------------------[Execution]----------------------------------------------------------
     #>
 
-    $stopWatch = [system.diagnostics.stopwatch]::startNew()
+    $stopWatch = [System.Diagnostics.Stopwatch]::StartNew()
     if ($PSBoundParameters.ContainsKey('Cluster') -or $PSBoundParameters.ContainsKey('DataCenter')) {
         [String[]]$VMhost = $null
     } #END if
@@ -101,112 +98,23 @@
       Query PowerCLI and vDocumentation versions if
       running Verbose
     #>
-    if ($VerbosePreference -eq "continue") {
-        Write-Verbose -Message ((Get-Date -Format G) + "`tPowerCLI Version:")
-        Get-Module -Name VMware.* | Select-Object -Property Name, Version | Format-Table -AutoSize
-        Write-Verbose -Message ((Get-Date -Format G) + "`tvDocumentation Version:")
-        Get-Module -Name vDocumentation | Select-Object -Property Name, Version | Format-Table -AutoSize
-    } #END if
+    Write-VerboseModuleInfo
 
     <#
       Check for an active connection to a VIServer
     #>
-    Write-Verbose -Message ((Get-Date -Format G) + "`tValidate connection to a vSphere server")
-    if ($Global:DefaultViServers.Count -gt 0) {
-        Write-Host "`tConnected to $Global:DefaultViServers" -ForegroundColor Green
-    }
-    else {
-        Write-Error -Message "You must be connected to a vSphere server before running this Cmdlet."
-        break
-    } #END if/else
-        
+    Test-VIServerConnection
+
     <#
       Gather host list based on parameter used
     #>
-    Write-Verbose -Message ((Get-Date -Format G) + "`tGather host list")
-    if ($VMhost) {
-        Write-Verbose -Message ((Get-Date -Format G) + "`tExecuting Cmdlet using VMhost parameter set")
-        Write-Output "`tGathering host list..."
-        foreach ($invidualHost in $VMhost) {
-            $tempList = Get-VMHost -Name $invidualHost.Trim() -ErrorAction SilentlyContinue
-            if ($tempList) {
-                $vHostList += $tempList
-            }
-            else {
-                Write-Warning -Message "`tESXi host $invidualHost was not found in $Global:DefaultViServers"
-            } #END if/else
-        } #END foreach    
-    } #END if
-    if ($Cluster) {
-        Write-Verbose -Message ((Get-Date -Format G) + "`tExecuting Cmdlet using Cluster parameter set")
-        Write-Output ("`tGathering host list from the following Cluster(s): " + (@($Cluster) -join ','))
-        foreach ($vClusterName in $Cluster) {
-            $tempList = Get-Cluster -Name $vClusterName.Trim() -ErrorAction SilentlyContinue | Get-VMHost 
-            if ($tempList) {
-                $vHostList += $tempList
-            }
-            else {
-                Write-Warning -Message "`tCluster with name $vClusterName was not found in $Global:DefaultViServers"
-            } #END if/else
-        } #END foreach
-    } #END if
-    if ($DataCenter) {
-        Write-Verbose -Message ((Get-Date -Format G) + "`tExecuting Cmdlet using Datacenter parameter set")
-        Write-Output ("`tGathering host list from the following DataCenter(s): " + (@($DataCenter) -join ','))
-        foreach ($vDCname in $DataCenter) {
-            $tempList = Get-Datacenter -Name $vDCname.Trim() -ErrorAction SilentlyContinue | Get-VMHost 
-            if ($tempList) {
-                $vHostList += $tempList
-            }
-            else {
-                Write-Warning -Message "`tDatacenter with name $vDCname was not found in $Global:DefaultViServers"
-            } #END if/else
-        } #END foreach
-    } #END if
-    $tempList = $null
-    
+    $vHostList = Get-VMHostList -VMhost $VMhost -Cluster $Cluster -DataCenter $DataCenter
+
     <#
       Validate export switches,
       folder path and dependencies
     #>
-    Write-Verbose -Message ((Get-Date -Format G) + "`tValidate export switches and folder path")
-    if ($ExportCSV -or $ExportExcel) {
-        $currentLocation = (Get-Location).Path
-        if ([string]::IsNullOrWhiteSpace($folderPath)) {
-            Write-Verbose -Message ((Get-Date -Format G) + "`t-folderPath parameter is Null or Empty")
-            Write-Warning -Message "`tFolder Path (-folderPath) was not specified for saving exported data. The current location: '$currentLocation' will be used"
-            $outputFile = $currentLocation + "\" + $outputFile
-        }
-        else {
-            if (Test-Path $folderPath) {
-                Write-Verbose -Message ((Get-Date -Format G) + "`t'$folderPath' path found")
-                $lastCharsOfFolderPath = $folderPath.Substring($folderPath.Length - 1)
-                if ($lastCharsOfFolderPath -eq "\" -or $lastCharsOfFolderPath -eq "/") {
-                    $outputFile = $folderPath + $outputFile
-                }
-                else {
-                    $outputFile = $folderPath + "\" + $outputFile
-                } #END if/else
-                Write-Verbose -Message ((Get-Date -Format G) + "`t$outputFile")
-            }
-            else {
-                Write-Warning -Message "`t'$folderPath' path not found. The current location: '$currentLocation' will be used instead"
-                $outputFile = $currentLocation + "\" + $outputFile
-            } #END if/else
-        } #END if/else
-    } #END if
-    if ($ExportExcel) {
-        if (Get-Module -ListAvailable -Name ImportExcel) {
-            Write-Verbose -Message ((Get-Date -Format G) + "`tImportExcel Module available")
-        }
-        else {
-            Write-Warning -Message "`tImportExcel Module missing. Will export data to CSV file instead"
-            Write-Warning -Message "`tImportExcel Module can be installed directly from the PowerShell Gallery"
-            Write-Warning -Message "`tSee https://github.com/dfinke/ImportExcel for more information"
-            $ExportExcel = $false
-            $ExportCSV = $true
-        } #END if/else
-    } #END if
+    $outputFile = Resolve-OutputFilePath -BaseName "IODevice" -FolderPath $folderPath -ExportCSV ([ref]$ExportCSV) -ExportExcel ([ref]$ExportExcel)
 
     <#
       Query HCL website for IO device
@@ -216,7 +124,7 @@
     $hclDataUrl = "https://www.vmware.com/resources/compatibility/js/data_io.js?"
     try {
         $webRequest = Invoke-WebRequest -Uri $hclDataUrl -UseBasicParsing
-    } 
+    }
     catch [System.Net.WebException] {
         $webRequest = $_.Exception.Response
     } #END try/catch
@@ -251,12 +159,12 @@
     }
     else {
         Write-Verbose -Message ("`tVMware HCL site: '$hclDataUrl' is NOT reachable/unavailable (Return code: " + ([int]$webRequest.StatusCode) + ")")
-    } #END if/else   
+    } #END if/else
     $hclDataUrl = "https://www.vmware.com/resources/compatibility/search.php?deviceCategory=io"
     $brandJson = $null
     try {
         $webRequest = Invoke-WebRequest -Uri $hclDataUrl -UseBasicParsing
-    } 
+    }
     catch [System.Net.WebException] {
         $webRequest = $_.Exception.Response
     } #END try/catch
@@ -268,7 +176,7 @@
     }
     else {
         Write-Verbose -Message ("`tVMware HCL site: '$hclDataUrl' is NOT reachable/unavailable (Return code: " + ([int]$webRequest.StatusCode) + ")")
-    } #END if/else   
+    } #END if/else
 
     <#
       Main code execution
@@ -280,25 +188,9 @@
           Skip if ESXi host is not in a Connected
           or Maintenance ConnectionState
         #>
-        Write-Verbose -Message ((Get-Date -Format G) + "`t$esxiHost Connection State: " + $esxiHost.ConnectionState)
-        if ($esxiHost.ConnectionState -eq "Connected" -or $esxiHost.ConnectionState -eq "Maintenance") {
-            <#
-              Do nothing - ESXi host is reachable
-            #>
-        }
-        else {
-            <#
-              Use a custom object to keep track of skipped
-              hosts and continue to the next foreach loop
-            #>
-            $skipCollection += [pscustomobject]@{
-                'Hostname'         = $esxiHost.Name
-                'Connection State' = $esxiHost.ConnectionState
-            } #END [PSCustomObject]
-            continue
-        } #END if/else
+        if (-not (Test-HostConnectionState -VMHost $esxiHost -SkipCollection ([ref]$skipCollection))) { continue }
         $esxcli = Get-EsxCli -VMHost $esxiHost -V2
-    
+
         <#
           Get IO Device details
         #>
@@ -311,12 +203,12 @@
             $esxiVersion = "ESXi " + ($esxiHost.Version).Substring(0, 3)
             Write-Verbose -Message ((Get-Date -Format G) + "`tFailed to get ESXi Update Level, Error : " + $err)
         } #END if/else
-        $pciDevices = $esxcli.hardware.pci.list.Invoke() | Where-Object {$_.VMKernelName -like "vmhba*" -or $_.VMKernelName -like "vmnic*" -or $_.VMKernelName -like "vmgfx*"} | Sort-Object -Property VMKernelName 
+        $pciDevices = $esxcli.hardware.pci.list.Invoke() | Where-Object {$_.VMKernelName -like "vmhba*" -or $_.VMKernelName -like "vmnic*" -or $_.VMKernelName -like "vmgfx*"} | Sort-Object -Property VMKernelName
         foreach ($pciDevice in $pciDevices) {
             $device = $esxiHost | Get-VMHostPciDevice | Where-Object {$pciDevice.Address -match $_.Id}
             Write-Verbose -Message ((Get-Date -Format G) + "`tGet driver version for: " + $pciDevice.ModuleName)
             $driverVersion = $esxcli.system.module.get.Invoke(@{module = $pciDevice.ModuleName}) | Select-Object -ExpandProperty Version
-    
+
             <#
               Get NIC Firmware version
             #>
@@ -324,19 +216,19 @@
                 Write-Verbose -Message ((Get-Date -Format G) + "`tGet Firmware version for: " + $pciDevice.VMKernelName)
                 $vmnicDetail = $esxcli.network.nic.get.Invoke(@{nicname = $pciDevice.VMKernelName})
                 $firmwareVersion = $vmnicDetail.DriverInfo.FirmwareVersion
-                
+
                 <#
                   Get NIC driver VIB package version
                 #>
                 Write-Verbose -Message ((Get-Date -Format G) + "`tGet VIB details for: " + $pciDevice.ModuleName)
                 $driverVib = $esxcli.software.vib.list.Invoke() | Select-Object -Property Name, Version | Where-Object {$_.Name -eq $vmnicDetail.DriverInfo.Driver -or $_.Name -eq "net-" + $vmnicDetail.DriverInfo.Driver -or $_.Name -eq "net55-" + $vmnicDetail.DriverInfo.Driver}
-                $vibName = $driverVib.Name    
+                $vibName = $driverVib.Name
             }
             elseif ($pciDevice.VMKernelName -like 'vmhba*') {
 
                 <#
                   If HP Smart Array vmhba* (scsi-hpsa driver) then get Firmware version
-                  else skip if VMkernnel is vmhba*. Can't get HBA Firmware from 
+                  else skip if VMkernnel is vmhba*. Can't get HBA Firmware from
                   Powercli at the moment only through SSH or using Putty Plink+PowerCli.
                 #>
                 if ($pciDevice.DeviceName -match "smart array") {
@@ -347,14 +239,14 @@
                     }
                     else {
                         Write-Verbose -Message ((Get-Date -Format G) + "`tGet Extension data failed. Skip Firmware version check for: " + $pciDevice.DeviceName)
-                        $firmwareVersion = $null    
+                        $firmwareVersion = $null
                     } #END if/else
                 }
                 else {
                     Write-Verbose -Message ((Get-Date -Format G) + "`tSkip Firmware version check for: " + $pciDevice.DeviceName)
-                    $firmwareVersion = $null    
+                    $firmwareVersion = $null
                 } #END if/else
-                        
+
                 <#
                   Get HBA driver VIB package version
                 #>
@@ -378,7 +270,7 @@
             $ssid = [String]::Format("{0:x4}", $device.SubDeviceId)
             $hclUrl = "https://www.vmware.com/resources/compatibility/search.php?deviceCategory=io&VID=$vid&DID=$did&SVID=$svid&SSID=$ssid&details=1"
             $productId = $hclIoCollection | Where-Object {$_.vid -match $vid -and $_.did -match $did -and $_.svid -match $svid -and $_.ssid -match $ssid} | Select-Object -ExpandProperty productid
-            
+
             <#
               Use a custom object to store
               collected data
@@ -424,7 +316,7 @@
                     $hclDataUrl = "https://www.vmware.com/resources/compatibility/detail.php?deviceCategory=io&productid=$productId&deviceCategory=io&details=1&VID=$vid&DID=$did&SVID=$svid&SSID=$ssid&page=1&display_interval=10&sortColumn=Partner&sortOrder=Asc"
                     try {
                         $webRequest = Invoke-WebRequest -Uri $hclDataUrl -UseBasicParsing
-                    } 
+                    }
                     catch [System.Net.WebException] {
                         $webRequest = $_.Exception.Response
                     } #END try/catch
@@ -451,7 +343,7 @@
                             $certDetailId = $device.CertDetail_Id.ToString() + "-1"
                             $deviceFeatures = $null
                             if ($featureJson.$certDetailId.Count -gt 0) {
-                                $deviceFeatures = $featureJson.$certDetailId[5]                                    
+                                $deviceFeatures = $featureJson.$certDetailId[5]
                             } #END if
 
                             <#
@@ -478,20 +370,20 @@
                     }
                     else {
                         Write-Verbose -Message ("`tVMware HCL site: '$hclDataUrl' is NOT reachable/unavailable (Return code: " + ([int]$webRequest.StatusCode) + ")")
-                    } #END if/else   
+                    } #END if/else
                 } #END foreach
             }
             else {
                 Write-Verbose -Message ((Get-Date -Format G) + "`t" + $ioDevice.'Device Name' + " has no Product ID. Skipping...")
                 continue
             } #END if/else
-            
+
         } #END foreach
     } #END if
     $stopWatch.Stop()
     Write-Verbose -Message ((Get-Date -Format G) + "`tMain code execution completed")
     Write-Verbose -Message  ((Get-Date -Format G) + "`tScript Duration: " + $stopWatch.Elapsed.Duration())
-    
+
     <#
       Display skipped hosts and their connection status
     #>
@@ -510,43 +402,15 @@
     else {
         Write-Verbose -Message ((Get-Date -Format G) + "`tNo information gathered")
     } #END if/else
-    
+
     <#
       Output to screen
       Export data to CSV, Excel
     #>
     if ($ioDeviceCollection) {
-        Write-Host "`n" "ESXi IO Device:" -ForegroundColor Green
-        if ($ExportCSV) {
-            $ioDeviceCollection | Export-Csv ($outputFile + "IODevice.csv") -NoTypeInformation
-            Write-Host "`tData exported to" ($outputFile + "IODevice.csv") "file" -ForegroundColor Green
-        }
-        elseif ($ExportExcel) {
-            $ioDeviceCollection | Export-Excel ($outputFile + ".xlsx") -WorkSheetname IO_Device -NoNumberConversion * -AutoSize -BoldTopRow
-            Write-Host "`tData exported to" ($outputFile + ".xlsx") "file" -ForegroundColor Green
-        }
-        elseif ($PassThru) {
-            $ioDeviceCollection
-        }
-        else {
-            $ioDeviceCollection | Format-List
-        }#END if/else
+        Export-CollectionData -Collection $ioDeviceCollection -Label "ESXi IO Device" -OutputFile $outputFile -FileNameSuffix "IODevice" -WorkSheetName "IO_Device" -ExportCSV $ExportCSV -ExportExcel $ExportExcel -PassThru $PassThru
     } #END if
     if ($ioDeviceHclCollection) {
-        Write-Host "`n" "VMware HCL Details:" -ForegroundColor Green
-        if ($ExportCSV) {
-            $ioDeviceHclCollection | Export-Csv ($outputFile + "HclDetails.csv") -NoTypeInformation
-            Write-Host "`tData exported to" ($outputFile + "HclDetails.csv") "file" -ForegroundColor Green
-        }
-        elseif ($ExportExcel) {
-            $ioDeviceHclCollection | Export-Excel ($outputFile + ".xlsx") -WorkSheetname IO_HCL_Details -NoNumberConversion * -AutoSize -BoldTopRow
-            Write-Host "`tData exported to" ($outputFile + ".xlsx") "file" -ForegroundColor Green
-        }
-        elseif ($PassThru) {
-            $ioDeviceHclCollection
-        }
-        else {
-            $ioDeviceHclCollection | Format-List
-        }#END if/else
+        Export-CollectionData -Collection $ioDeviceHclCollection -Label "VMware HCL Details" -OutputFile $outputFile -FileNameSuffix "HclDetails" -WorkSheetName "IO_HCL_Details" -ExportCSV $ExportCSV -ExportExcel $ExportExcel -PassThru $PassThru
     } #END if
 } #END function

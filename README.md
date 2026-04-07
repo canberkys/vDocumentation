@@ -1,10 +1,30 @@
-# vDocumentation
+# vDocumentation v3.0 (Maintained Fork)
+
+[![CI](https://github.com/canberkys/vDocumentation/actions/workflows/ci.yml/badge.svg)](https://github.com/canberkys/vDocumentation/actions/workflows/ci.yml)
+
+> **This is a maintained fork** of the original [vDocumentation](https://github.com/arielsanchezmora/vDocumentation) project by **Ariel Sanchez** ([@arielsanchezmor](https://github.com/arielsanchezmora)) and **Edgar Sanchez** ([@edmsanchez13](https://github.com/edmsanchez13)). The original project was last updated in October 2019 (v2.4.7). This fork modernizes the module for **PowerShell 7+**, **PowerCLI 13.x**, and **vSphere 8** while preserving full attribution to the original authors.
+
+## What's New in v3.0
+
+- **PowerShell 7+** and **PowerCLI 13.x** support
+- **vSphere 8** features: DPU/SmartNIC inventory, vSAN ESA detection, vSphere Lifecycle Manager
+- **Cross-platform** compatibility (Windows, macOS, Linux)
+- **Bug fixes**: vSAN cluster type detection, HBA firmware, variable typos, path separators
+- **Code quality**: 6 shared helper functions, ~1000 lines of duplicated code eliminated
+- **CI/CD**: Pester tests, PSScriptAnalyzer, GitHub Actions pipeline
+- **New function**: `Get-ESXDPUInventory` for DPU/SmartNIC documentation
+
+See [CHANGELOG.md](CHANGELOG.md) for full details.
+
+---
+
+## Original Project
 
 vDocumentation provides a community-created set of PowerCLI scripts that produce infrastructure documentation of vSphere environments in CSV or Excel file format. It was presented for general public use in VMworld 2017, session SER2077BU. You can watch the video here
 
 https://www.youtube.com/watch?v=-KK0ih8tuTo
 
-Original slides are [here](https://www.dropbox.com/s/f5e9hpxgzz0unq1/vmworld2017-Ariel%20and%20Edgar%20Sanchez-SER2077BU-Achieve%20Maximum%20vSphere%20Stability%20with%20PowerCLI%20Assisted%20Documentation%20From%20Buildout%20to%20Daily%20Administration.pptx?dl=0) as well as the [mindmap](https://www.dropbox.com/s/19jdgup6ldah3u9/SER2077BU%20Achieve%20maximum%20vSphere%20stability%20with%20PowerCLI%20assisted%20documentation%20%20from%20buildout%20to%20daily%20administration-mindmap201707231829EST.png?dl=0) we used to create this talk. We are passionate about this subject so please use the slides or let us know what you would like to add to the MindMap, and we can continue improving this presentation.
+Original slides are [here](https://www.dropbox.com/s/f5e9hpxgzz0unq1/vmworld2017-Ariel%20and%20Edgar%20Sanchez-SER2077BU-Achieve%20Maximum%20vSphere%20Stability%20with%20PowerCLI%20Assisted%20Documentation%20From%20Buildout%20to%20Daily%20Administration.pptx?dl=0) as well as the [mindmap](https://www.dropbox.com/s/19jdgup6ldah3u9/SER2077BU%20Achieve%20maximum%20vSphere%20stability%20with%20PowerCLI%20assisted%20documentation%20%20from%20buildout%20to%20daily%20administration-mindmap201707231829EST.png?dl=0) we used to create this talk.
 
 # If you already have installed vDocumentation, here's some quick instructions to determine your version and to upgrade if needed
 
